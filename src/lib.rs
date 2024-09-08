@@ -28,7 +28,7 @@ fn merge(units: &[i32], pair: &(i32, i32), idx: i32) -> Vec<i32> {
     new_units
 }
 
-fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<(i32, i32), i32>) {
+pub fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<(i32, i32), i32>) {
     let mut merges = HashMap::new();
     let initial_vocab_size = units.iter().cloned().collect::<HashSet<_>>().len();
     let mut max_idx = *units.iter().max().unwrap();
@@ -70,7 +70,7 @@ fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<(i32
     (units, merges)
 }
 
-fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
+pub fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     while units.len() >= 2 {
         let counts = get_counts(&units);
         let pair_to_merge = counts
@@ -86,7 +86,7 @@ fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     units
 }
 
-fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
+pub fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     let swapped_merges: HashMap<i32, (i32, i32)> = merges.iter().map(|(k, v)| (*v, *k)).collect();
     let mut decoded_units = units.clone();
 
@@ -116,13 +116,19 @@ fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     decoded_units
 }
 
-fn main() {
-    env_logger::init();
-    let units = vec![0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5];
-    let (_encoded_units, merges) = fit(units, 10);
-    let units_to_encode = vec![0, 1, 0, 1, 2, 3, 4, 5];
-    let encoded = encode(units_to_encode, &merges);
-    println!("{:?}", encoded);
-    let decoded = decode(encoded, &merges);
-    println!("{:?}", decoded)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fit_encode_decode() {
+        env_logger::init();
+        let units = vec![0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5];
+        let (_encoded_units, merges) = fit(units, 10);
+        let units_to_encode = vec![0, 1, 0, 1, 2, 3, 4, 5];
+        let units_to_encode_copy = units_to_encode.clone();
+        let encoded = encode(units_to_encode, &merges);
+        let decoded = decode(encoded, &merges);
+        assert_eq!(units_to_encode_copy, decoded);
+    }
 }
