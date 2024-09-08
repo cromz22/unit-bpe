@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use log::{info, debug};
 
 fn get_counts(units: &[i32]) -> HashMap<(i32, i32), i32> {
     let mut counts: HashMap<(i32, i32), i32> = HashMap::new();
@@ -41,26 +42,27 @@ fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<(i32
     }
 
     let num_merges = target_vocab_size - initial_vocab_size;
-    println!("Performing {} merges. Units: {:?}", num_merges, units);
+    info!("Performing {} merges.", num_merges);
+    debug!("Initial units: {:?}", units);
 
     for i in 0..num_merges {
         let counts = get_counts(&units);
         if counts.is_empty() {
-            println!("No more pairs to merge.");
+            info!("No pairs to merge.");
             break;
         }
         let top_pair = counts.iter().max_by_key(|(_, &v)| v).unwrap().0;
         let new_idx = max_idx + 1;
         units = merge(&units, top_pair, new_idx);
         merges.insert(*top_pair, new_idx);
-        println!(
-            "Merge {}/{}: {:?} -> {}; Units: {:?}",
+        info!(
+            "Merge {}/{}: {:?} -> {}",
             i + 1,
             num_merges,
             top_pair,
             new_idx,
-            units
         );
+        debug!("Units: {:?}", units);
 
         max_idx = new_idx;
     }
@@ -115,6 +117,7 @@ fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
 }
 
 fn main() {
+    env_logger::init();
     let units = vec![0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5];
     let (_encoded_units, merges) = fit(units, 10);
     let units_to_encode = vec![0, 1, 0, 1, 2, 3, 4, 5];
