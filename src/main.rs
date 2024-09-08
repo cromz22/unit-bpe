@@ -27,7 +27,7 @@ fn merge(units: &[i32], pair: &(i32, i32), idx: i32) -> Vec<i32> {
     new_units
 }
 
-fn fit(mut units: Vec<i32>, target_vocab_size: usize) {
+fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<(i32, i32), i32>) {
     let mut merges = HashMap::new();
     let initial_vocab_size = units.iter().cloned().collect::<HashSet<_>>().len();
     let mut max_idx = *units.iter().max().unwrap();
@@ -64,9 +64,30 @@ fn fit(mut units: Vec<i32>, target_vocab_size: usize) {
 
         max_idx = new_idx;
     }
+
+    (units, merges)
+}
+
+fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
+    while units.len() >= 2 {
+        let counts = get_counts(&units);
+        let pair_to_merge = counts
+            .keys()
+            .min_by_key(|pair| merges.get(pair).unwrap_or(&i32::MAX))
+            .unwrap();
+        if !merges.contains_key(pair_to_merge) {
+            break;
+        }
+        let idx = merges[pair_to_merge];
+        units = merge(&units, pair_to_merge, idx);
+    }
+    units
 }
 
 fn main() {
     let units = vec![0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5];
-    fit(units, 10);
+    let (_encoded_units, merges) = fit(units, 10);
+    let units_to_encode = vec![0, 1, 0, 1, 2, 3, 4, 5];
+    let encoded = encode(units_to_encode, &merges);
+    println!("{:?}", encoded)
 }
