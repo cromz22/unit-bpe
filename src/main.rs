@@ -86,12 +86,10 @@ fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
 
 fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     let swapped_merges: HashMap<i32, (i32, i32)> = merges.iter().map(|(k, v)| (*v, *k)).collect();
-    let swapped_merges_keys = &swapped_merges.keys().cloned().collect();
-
-    let mut units_set: HashSet<i32> = units.iter().cloned().collect();
     let mut decoded_units = units.clone();
 
-    while !units_set.is_disjoint(swapped_merges_keys) {
+    loop {
+        let mut has_replacement = false;
         let mut new_units = Vec::new();
         let mut i = 0;
 
@@ -99,14 +97,18 @@ fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
             if let Some(&(a, b)) = swapped_merges.get(&decoded_units[i]) {
                 new_units.push(a);
                 new_units.push(b);
+                has_replacement = true;
             } else {
                 new_units.push(decoded_units[i]);
             }
             i += 1;
         }
 
+        if !has_replacement {
+            break;
+        }
+
         decoded_units = new_units;
-        units_set = decoded_units.iter().cloned().collect();
     }
 
     decoded_units
