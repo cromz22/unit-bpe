@@ -84,10 +84,40 @@ fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     units
 }
 
+fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
+    let swapped_merges: HashMap<i32, (i32, i32)> = merges.iter().map(|(k, v)| (*v, *k)).collect();
+    let swapped_merges_keys = &swapped_merges.keys().cloned().collect();
+
+    let mut units_set: HashSet<i32> = units.iter().cloned().collect();
+    let mut decoded_units = units.clone();
+
+    while !units_set.is_disjoint(swapped_merges_keys) {
+        let mut new_units = Vec::new();
+        let mut i = 0;
+
+        while i < decoded_units.len() {
+            if let Some(&(a, b)) = swapped_merges.get(&decoded_units[i]) {
+                new_units.push(a);
+                new_units.push(b);
+            } else {
+                new_units.push(decoded_units[i]);
+            }
+            i += 1;
+        }
+
+        decoded_units = new_units;
+        units_set = decoded_units.iter().cloned().collect();
+    }
+
+    decoded_units
+}
+
 fn main() {
     let units = vec![0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5];
     let (_encoded_units, merges) = fit(units, 10);
     let units_to_encode = vec![0, 1, 0, 1, 2, 3, 4, 5];
     let encoded = encode(units_to_encode, &merges);
-    println!("{:?}", encoded)
+    println!("{:?}", encoded);
+    let decoded = decode(encoded, &merges);
+    println!("{:?}", decoded)
 }
