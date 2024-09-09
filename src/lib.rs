@@ -1,5 +1,6 @@
 use dashmap::{DashMap, DashSet};
 use log::{debug, info};
+use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 
@@ -91,11 +92,20 @@ pub fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<
     (units, merges)
 }
 
+#[pyfunction]
+pub fn fit_py(units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, Vec<((i32, i32), i32)>) {
+    let (units, merges) = fit(units, target_vocab_size);
+
+    (
+        units,
+        merges.into_iter().collect::<Vec<((i32, i32), i32)>>(),
+    )
+}
+
 pub fn fit_concurrent(
     mut units_list: Vec<Vec<i32>>,
     target_vocab_size: usize,
 ) -> (Vec<Vec<i32>>, HashMap<(i32, i32), i32>) {
-
     let unique_units = DashSet::new();
     let max_idx = units_list
         .par_iter()
@@ -146,6 +156,19 @@ pub fn fit_concurrent(
     (units_list, merges.into_iter().collect())
 }
 
+#[pyfunction]
+pub fn fit_concurrent_py(
+    units_list: Vec<Vec<i32>>,
+    target_vocab_size: usize,
+) -> (Vec<Vec<i32>>, Vec<((i32, i32), i32)>) {
+    let (units_list, merges) = fit_concurrent(units_list, target_vocab_size);
+
+    (
+        units_list,
+        merges.into_iter().collect::<Vec<((i32, i32), i32)>>(),
+    )
+}
+
 pub fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     while units.len() >= 2 {
         let counts = get_counts(&units);
@@ -162,11 +185,34 @@ pub fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32
     units
 }
 
-pub fn encode_concurrent(units_list: Vec<Vec<i32>>, merges: &HashMap<(i32, i32), i32>) -> Vec<Vec<i32>> {
+#[pyfunction]
+pub fn encode_py(
+    units: Vec<i32>,
+    merges: Vec<((i32, i32), i32)>,
+) -> Vec<i32> {
+    let merges_map: HashMap<(i32, i32), i32> = merges.iter().cloned().collect();
+
+    encode(units, &merges_map)
+}
+
+pub fn encode_concurrent(
+    units_list: Vec<Vec<i32>>,
+    merges: &HashMap<(i32, i32), i32>,
+) -> Vec<Vec<i32>> {
     units_list
         .par_iter()
         .map(|units| encode(units.clone(), merges))
         .collect()
+}
+
+#[pyfunction]
+pub fn encode_concurrent_py(
+    units_list: Vec<Vec<i32>>,
+    merges: Vec<((i32, i32), i32)>,
+) -> Vec<Vec<i32>> {
+    let merges_map: HashMap<(i32, i32), i32> = merges.iter().cloned().collect();
+
+    encode_concurrent(units_list, &merges_map)
 }
 
 pub fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
@@ -199,11 +245,45 @@ pub fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     decoded_units
 }
 
-pub fn decode_concurrent(units_list: Vec<Vec<i32>>, merges: &HashMap<(i32, i32), i32>) -> Vec<Vec<i32>> {
+#[pyfunction]
+pub fn decode_py(
+    units: Vec<i32>,
+    merges: Vec<((i32, i32), i32)>,
+) -> Vec<i32> {
+    let merges_map: HashMap<(i32, i32), i32> = merges.iter().cloned().collect();
+
+    decode(units, &merges_map)
+}
+
+pub fn decode_concurrent(
+    units_list: Vec<Vec<i32>>,
+    merges: &HashMap<(i32, i32), i32>,
+) -> Vec<Vec<i32>> {
     units_list
         .par_iter()
         .map(|units| decode(units.clone(), merges))
         .collect()
+}
+
+#[pyfunction]
+pub fn decode_concurrent_py(
+    units_list: Vec<Vec<i32>>,
+    merges: Vec<((i32, i32), i32)>,
+) -> Vec<Vec<i32>> {
+    let merges_map: HashMap<(i32, i32), i32> = merges.iter().cloned().collect();
+
+    decode_concurrent(units_list, &merges_map)
+}
+
+#[pymodule]
+fn unit_bpe(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(fit_py, m)?)?;
+    m.add_function(wrap_pyfunction!(fit_concurrent_py, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_py, m)?)?;
+    m.add_function(wrap_pyfunction!(encode_concurrent_py, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_py, m)?)?;
+    m.add_function(wrap_pyfunction!(decode_concurrent_py, m)?)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -236,18 +316,15 @@ mod tests {
         init_env_logger();
         let units_list = vec![
             vec![0, 1, 0, 1, 2, 0, 1, 2, 3],
-            vec![0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5]
+            vec![0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5],
         ];
         let (_encoded_units, merges) = fit_concurrent(units_list, 10);
 
-        let units_list_to_encode = vec![
-            vec![0, 1, 0, 1, 2, 3, 4, 5],
-            vec![0, 1, 2, 0, 1, 2, 3]
-        ];
+        let units_list_to_encode = vec![vec![0, 1, 0, 1, 2, 3, 4, 5], vec![0, 1, 2, 0, 1, 2, 3]];
         let units_list_to_encode_copy = units_list_to_encode.clone();
         let encoded = encode_concurrent(units_list_to_encode, &merges);
         let decoded = decode_concurrent(encoded, &merges);
-        
+
         assert_eq!(units_list_to_encode_copy, decoded)
     }
 }
