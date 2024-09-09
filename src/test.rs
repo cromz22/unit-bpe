@@ -11,7 +11,7 @@ fn init_env_logger() {
 }
 
 #[test]
-fn test_fit_encode_decode() {
+fn test_core() {
     init_env_logger();
     let units = vec![0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5];
     let (_encoded_units, merges) = fit(units, 10);
