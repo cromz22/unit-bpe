@@ -1,5 +1,5 @@
 [package]
-name = "unit-tokenizer"
+name = "unit-bpe"
 version = "0.1.0"
 edition = "2021"
 
