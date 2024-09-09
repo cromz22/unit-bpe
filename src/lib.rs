@@ -1,5 +1,7 @@
+use dashmap::{DashMap, DashSet};
+use log::{debug, info};
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
-use log::{info, debug};
 
 fn get_counts(units: &[i32]) -> HashMap<(i32, i32), i32> {
     let mut counts: HashMap<(i32, i32), i32> = HashMap::new();
@@ -10,6 +12,19 @@ fn get_counts(units: &[i32]) -> HashMap<(i32, i32), i32> {
     }
 
     counts
+}
+
+fn get_counts_concurrent(units_list: &[Vec<i32>]) -> HashMap<(i32, i32), i32> {
+    let global_counts = DashMap::new();
+
+    units_list.par_iter().for_each(|units| {
+        let local_counts = get_counts(units);
+        for (pair, count) in local_counts {
+            *global_counts.entry(pair).or_insert(0) += count;
+        }
+    });
+
+    global_counts.into_iter().collect()
 }
 
 fn merge(units: &[i32], pair: &(i32, i32), idx: i32) -> Vec<i32> {
@@ -28,17 +43,23 @@ fn merge(units: &[i32], pair: &(i32, i32), idx: i32) -> Vec<i32> {
     new_units
 }
 
+fn merge_concurrent(units_list: &[Vec<i32>], pair: &(i32, i32), idx: i32) -> Vec<Vec<i32>> {
+    units_list
+        .par_iter()
+        .map(|units| merge(units, pair, idx))
+        .collect()
+}
+
 pub fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<(i32, i32), i32>) {
     let mut merges = HashMap::new();
     let initial_vocab_size = units.iter().cloned().collect::<HashSet<_>>().len();
     let mut max_idx = *units.iter().max().unwrap();
 
     if target_vocab_size <= initial_vocab_size {
-        let error_message = format!(
+        panic!(
             "Target vocab size ({}) must be greater than the initial vocab size ({}).",
             target_vocab_size, initial_vocab_size
         );
-        panic!("{}", error_message);
     }
 
     let num_merges = target_vocab_size - initial_vocab_size;
@@ -70,6 +91,61 @@ pub fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<
     (units, merges)
 }
 
+pub fn fit_concurrent(
+    mut units_list: Vec<Vec<i32>>,
+    target_vocab_size: usize,
+) -> (Vec<Vec<i32>>, HashMap<(i32, i32), i32>) {
+
+    let unique_units = DashSet::new();
+    let max_idx = units_list
+        .par_iter()
+        .flat_map(|units| units.par_iter().cloned())
+        .inspect(|&unit| {
+            unique_units.insert(unit);
+        })
+        .max()
+        .unwrap();
+
+    let initial_vocab_size = unique_units.len();
+    if target_vocab_size <= initial_vocab_size {
+        panic!(
+            "Target vocab size ({}) must be greater than the initial vocab size ({}).",
+            target_vocab_size, initial_vocab_size
+        );
+    }
+
+    let num_merges = target_vocab_size - initial_vocab_size;
+    info!("Performing {} merges.", num_merges);
+    debug!("Initial units: {:?}", units_list);
+
+    let merges = DashMap::new();
+    let mut current_max_idx = max_idx;
+
+    for i in 0..num_merges {
+        let counts = get_counts_concurrent(&units_list);
+        if counts.is_empty() {
+            info!("No pairs to merge.");
+            break;
+        }
+        let top_pair = counts.iter().max_by_key(|(_, &v)| v).unwrap().0;
+        let new_idx = current_max_idx + 1;
+        units_list = merge_concurrent(&units_list, top_pair, new_idx);
+        merges.insert(*top_pair, new_idx);
+        info!(
+            "Merge {}/{}: {:?} -> {}",
+            i + 1,
+            num_merges,
+            top_pair,
+            new_idx
+        );
+        debug!("Units: {:?}", units_list);
+
+        current_max_idx = new_idx;
+    }
+
+    (units_list, merges.into_iter().collect())
+}
+
 pub fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     while units.len() >= 2 {
         let counts = get_counts(&units);
@@ -84,6 +160,13 @@ pub fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32
         units = merge(&units, pair_to_merge, idx);
     }
     units
+}
+
+pub fn encode_concurrent(units_list: Vec<Vec<i32>>, merges: &HashMap<(i32, i32), i32>) -> Vec<Vec<i32>> {
+    units_list
+        .par_iter()
+        .map(|units| encode(units.clone(), merges))
+        .collect()
 }
 
 pub fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
@@ -116,13 +199,29 @@ pub fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
     decoded_units
 }
 
+pub fn decode_concurrent(units_list: Vec<Vec<i32>>, merges: &HashMap<(i32, i32), i32>) -> Vec<Vec<i32>> {
+    units_list
+        .par_iter()
+        .map(|units| decode(units.clone(), merges))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+
+    fn init_env_logger() {
+        INIT.call_once(|| {
+            env_logger::init();
+        });
+    }
 
     #[test]
     fn test_fit_encode_decode() {
-        env_logger::init();
+        init_env_logger();
         let units = vec![0, 1, 0, 1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5];
         let (_encoded_units, merges) = fit(units, 10);
         let units_to_encode = vec![0, 1, 0, 1, 2, 3, 4, 5];
@@ -130,5 +229,25 @@ mod tests {
         let encoded = encode(units_to_encode, &merges);
         let decoded = decode(encoded, &merges);
         assert_eq!(units_to_encode_copy, decoded);
+    }
+
+    #[test]
+    fn test_concurrent() {
+        init_env_logger();
+        let units_list = vec![
+            vec![0, 1, 0, 1, 2, 0, 1, 2, 3],
+            vec![0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5]
+        ];
+        let (_encoded_units, merges) = fit_concurrent(units_list, 10);
+
+        let units_list_to_encode = vec![
+            vec![0, 1, 0, 1, 2, 3, 4, 5],
+            vec![0, 1, 2, 0, 1, 2, 3]
+        ];
+        let units_list_to_encode_copy = units_list_to_encode.clone();
+        let encoded = encode_concurrent(units_list_to_encode, &merges);
+        let decoded = decode_concurrent(encoded, &merges);
+        
+        assert_eq!(units_list_to_encode_copy, decoded)
     }
 }
