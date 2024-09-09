@@ -153,12 +153,6 @@ jobs:
           name: wheels-sdist
           path: dist
 
-  debugrelease:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Debug github.ref
-        run: echo "ref: ${{ github.ref }}"
-
   release:
     name: Release
     runs-on: ubuntu-latest
