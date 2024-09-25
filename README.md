@@ -41,7 +41,7 @@ print(decoded)  # [[0, 1, 0, 1, 2, 3, 4, 5], [0, 1, 2, 0, 1, 2, 3]]
 
 - Rust environment
     - See https://www.rust-lang.org/learn/get-started if you don't have Rust development environment
-    - Run `cargo install` to install dependencies
+    - Dependencies will be automatically installed when you run cargo commands
 
 - Python environment
     - [uv](https://docs.astral.sh/uv/) is used as the package manager
@@ -60,6 +60,8 @@ print(decoded)  # [[0, 1, 0, 1, 2, 3, 4, 5], [0, 1, 2, 0, 1, 2, 3]]
     ```
     uv run pytest
     ```
+
+    - To install the crate as a Python module in the virtual environment, run `maturin develop`.
 
 ### Directory structure
 
