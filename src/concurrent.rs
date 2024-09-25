@@ -5,16 +5,16 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 
 fn get_counts_concurrent(units_list: &[Vec<i32>]) -> HashMap<(i32, i32), i32> {
-    let global_counts = DashMap::new();
-
-    units_list.par_iter().for_each(|units| {
-        let local_counts = get_counts(units);
-        for (pair, count) in local_counts {
-            *global_counts.entry(pair).or_insert(0) += count;
-        }
-    });
-
-    global_counts.into_iter().collect()
+    units_list
+        .par_iter()
+        .map(|units| get_counts(units))
+        .reduce_with(|mut accumulated_counts, counts| {
+            for (pair, count) in counts {
+                *accumulated_counts.entry(pair).or_insert(0) += count;
+            }
+            accumulated_counts
+        })
+        .unwrap_or_default()
 }
 
 fn merge_concurrent(units_list: &[Vec<i32>], pair: &(i32, i32), idx: i32) -> Vec<Vec<i32>> {
