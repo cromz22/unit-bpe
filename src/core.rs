@@ -1,8 +1,9 @@
 use log::{debug, info};
 use std::collections::{HashMap, HashSet};
+use crate::Pair;
 
-pub fn get_counts(units: &[i32]) -> HashMap<(i32, i32), i32> {
-    let mut counts: HashMap<(i32, i32), i32> = HashMap::new();
+pub fn get_counts(units: &[i32]) -> HashMap<Pair, i32> {
+    let mut counts: HashMap<Pair, i32> = HashMap::new();
 
     for pair in units.windows(2) {
         let pair_tuple = (pair[0], pair[1]);
@@ -12,7 +13,7 @@ pub fn get_counts(units: &[i32]) -> HashMap<(i32, i32), i32> {
     counts
 }
 
-pub fn merge(units: &[i32], pair: &(i32, i32), idx: i32) -> Vec<i32> {
+pub fn merge(units: &[i32], pair: &Pair, idx: i32) -> Vec<i32> {
     let mut new_units = Vec::new();
     let mut i = 0;
     while i < units.len() {
@@ -28,7 +29,7 @@ pub fn merge(units: &[i32], pair: &(i32, i32), idx: i32) -> Vec<i32> {
     new_units
 }
 
-pub fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<(i32, i32), i32>) {
+pub fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<Pair, i32>) {
     let mut merges = HashMap::new();
     let initial_vocab_size = units.iter().cloned().collect::<HashSet<_>>().len();
     let mut max_idx = *units.iter().max().unwrap();
@@ -69,7 +70,7 @@ pub fn fit(mut units: Vec<i32>, target_vocab_size: usize) -> (Vec<i32>, HashMap<
     (units, merges)
 }
 
-pub fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
+pub fn encode(mut units: Vec<i32>, merges: &HashMap<Pair, i32>) -> Vec<i32> {
     while units.len() >= 2 {
         let counts = get_counts(&units);
         let pair_to_merge = counts
@@ -85,8 +86,8 @@ pub fn encode(mut units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32
     units
 }
 
-pub fn decode(units: Vec<i32>, merges: &HashMap<(i32, i32), i32>) -> Vec<i32> {
-    let swapped_merges: HashMap<i32, (i32, i32)> = merges.iter().map(|(k, v)| (*v, *k)).collect();
+pub fn decode(units: Vec<i32>, merges: &HashMap<Pair, i32>) -> Vec<i32> {
+    let swapped_merges: HashMap<i32, Pair> = merges.iter().map(|(k, v)| (*v, *k)).collect();
     let mut decoded_units = units.clone();
 
     loop {
