@@ -1,6 +1,6 @@
 [project]
 name = "unit-bpe"
-version = "0.1.6"
+version = "0.2.0"
 description = "BPE tokenizer that operates on integer sequences"
 readme = "README.md"
 requires-python = ">=3.9"
