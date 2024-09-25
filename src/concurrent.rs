@@ -40,55 +40,55 @@ pub fn fit_concurrent(
     let mut merges: HashMap<Pair, i32> = HashMap::new();
     let mut current_max_idx = max_idx;
 
-    // Shared counts and positions protected by Mutex for thread safety
-    let counts = Arc::new(Mutex::new(HashMap::<Pair, i32>::new()));
-    let pair_positions = Arc::new(Mutex::new(HashMap::<Pair, Vec<Position>>::new()));
-
     // Wrap each sequence in a Mutex and share units_list across threads with Arc
     let units_list = units_list.into_iter().map(Mutex::new).collect::<Vec<_>>();
     let units_list = Arc::new(units_list);
 
-    // Initialize counts and positions
-    units_list
-        .par_iter()
-        .enumerate()
-        .for_each(|(seq_idx, sequence_mutex)| {
-            let sequence = sequence_mutex.lock().unwrap();
-            let mut local_counts = HashMap::<Pair, i32>::new();
-            let mut local_positions = HashMap::<Pair, Vec<Position>>::new();
-
-            for (pos, pair) in sequence.windows(2).enumerate() {
-                let pair_tuple = (pair[0], pair[1]);
-
-                // Update local counts
-                *local_counts.entry(pair_tuple).or_insert(0) += 1;
-
-                // Update local positions
-                local_positions
-                    .entry(pair_tuple)
-                    .or_insert_with(Vec::new)
-                    .push((seq_idx, pos));
-            }
-
-            // Merge local counts and positions into global ones
-            {
-                let mut counts_lock = counts.lock().unwrap();
-                for (pair, count) in local_counts {
-                    *counts_lock.entry(pair).or_insert(0) += count;
-                }
-            }
-            {
-                let mut positions_lock = pair_positions.lock().unwrap();
-                for (pair, positions) in local_positions {
-                    positions_lock
-                        .entry(pair)
-                        .or_insert_with(Vec::new)
-                        .extend(positions);
-                }
-            }
-        });
-
     for i in 0..num_merges {
+        // Compute counts and positions afresh in each iteration
+        let counts = Arc::new(Mutex::new(HashMap::<Pair, i32>::new()));
+        let pair_positions = Arc::new(Mutex::new(HashMap::<Pair, Vec<Position>>::new()));
+
+        // Recompute counts and positions
+        units_list
+            .par_iter()
+            .enumerate()
+            .for_each(|(seq_idx, sequence_mutex)| {
+                let sequence = sequence_mutex.lock().unwrap();
+                let mut local_counts = HashMap::<Pair, i32>::new();
+                let mut local_positions = HashMap::<Pair, Vec<Position>>::new();
+
+                for (pos, pair) in sequence.windows(2).enumerate() {
+                    let pair_tuple = (pair[0], pair[1]);
+
+                    // Update local counts
+                    *local_counts.entry(pair_tuple).or_insert(0) += 1;
+
+                    // Update local positions
+                    local_positions
+                        .entry(pair_tuple)
+                        .or_insert_with(Vec::new)
+                        .push((seq_idx, pos));
+                }
+
+                // Merge local counts and positions into global ones
+                {
+                    let mut counts_lock = counts.lock().unwrap();
+                    for (pair, count) in local_counts {
+                        *counts_lock.entry(pair).or_insert(0) += count;
+                    }
+                }
+                {
+                    let mut positions_lock = pair_positions.lock().unwrap();
+                    for (pair, positions) in local_positions {
+                        positions_lock
+                            .entry(pair)
+                            .or_insert_with(Vec::new)
+                            .extend(positions);
+                    }
+                }
+            });
+
         // Get the top pair
         let top_pair = {
             let counts_lock = counts.lock().unwrap();
@@ -112,77 +112,40 @@ pub fn fit_concurrent(
 
         // Positions where the top_pair occurs
         let positions_to_update = {
-            let mut positions_lock = pair_positions.lock().unwrap();
-            positions_lock.remove(&top_pair).unwrap_or_default()
+            let positions_lock = pair_positions.lock().unwrap();
+            positions_lock.get(&top_pair).cloned().unwrap_or_default()
         };
 
-        let units_list = Arc::clone(&units_list);
-        let counts = Arc::clone(&counts);
-        let pair_positions = Arc::clone(&pair_positions);
+        // Group positions by sequence
+        let mut positions_by_sequence: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (seq_idx, pos) in positions_to_update {
+            positions_by_sequence
+                .entry(seq_idx)
+                .or_insert_with(Vec::new)
+                .push(pos);
+        }
 
-        // Update sequences and adjust counts and positions
-        positions_to_update
-            .par_iter()
-            .for_each(|&(seq_idx, pos)| {
+        let units_list = Arc::clone(&units_list);
+
+        // Update sequences per sequence
+        positions_by_sequence
+            .into_par_iter()
+            .for_each(|(seq_idx, mut positions)| {
                 // Lock the sequence for updating
                 let sequence_mutex = &units_list[seq_idx];
                 let mut sequence = sequence_mutex.lock().unwrap();
 
-                // Skip if position is out of bounds (due to previous merges)
-                if pos >= sequence.len() - 1 {
-                    return;
-                }
+                // Sort positions in reverse order
+                positions.sort_unstable_by(|a, b| b.cmp(a));
 
-                // Merge the pair into new_idx
-                sequence[pos] = new_idx;
-                sequence.remove(pos + 1);
-
-                // Update counts and positions
-                let mut counts_lock = counts.lock().unwrap();
-                let mut positions_lock = pair_positions.lock().unwrap();
-
-                // Decrease count of old left pair
-                if pos > 0 {
-                    let left_pair = (sequence[pos - 1], top_pair.0);
-                    if let Some(count) = counts_lock.get_mut(&left_pair) {
-                        *count -= 1;
-                        if *count == 0 {
-                            counts_lock.remove(&left_pair);
-                            positions_lock.remove(&left_pair);
-                        }
+                for &pos in positions.iter() {
+                    if pos >= sequence.len() - 1 {
+                        continue;
                     }
-                }
 
-                // Decrease count of old right pair
-                if pos < sequence.len() - 1 {
-                    let right_pair = (top_pair.1, sequence[pos + 1]);
-                    if let Some(count) = counts_lock.get_mut(&right_pair) {
-                        *count -= 1;
-                        if *count == 0 {
-                            counts_lock.remove(&right_pair);
-                            positions_lock.remove(&right_pair);
-                        }
-                    }
-                }
-
-                // Increase count of new left pair
-                if pos > 0 {
-                    let new_left_pair = (sequence[pos - 1], new_idx);
-                    *counts_lock.entry(new_left_pair).or_insert(0) += 1;
-                    positions_lock
-                        .entry(new_left_pair)
-                        .or_insert_with(Vec::new)
-                        .push((seq_idx, pos - 1));
-                }
-
-                // Increase count of new right pair
-                if pos < sequence.len() - 1 {
-                    let new_right_pair = (new_idx, sequence[pos + 1]);
-                    *counts_lock.entry(new_right_pair).or_insert(0) += 1;
-                    positions_lock
-                        .entry(new_right_pair)
-                        .or_insert_with(Vec::new)
-                        .push((seq_idx, pos));
+                    // Merge the pair into new_idx
+                    sequence[pos] = new_idx;
+                    sequence.remove(pos + 1);
                 }
             });
 
