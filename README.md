@@ -11,6 +11,8 @@ The implementation is in Rust and Python bindings are provided utilizing [pyo3](
 pip install unit-bpe
 ```
 
+- v0.2.0 contains a bug. Use v0.1.x.
+
 ## Example usage from Python
 
 ```
